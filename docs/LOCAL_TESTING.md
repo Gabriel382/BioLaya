@@ -1,12 +1,8 @@
-# Local testing before Google Colab
+# Local testing
 
-BioLaya supports the same device contract locally and in Colab:
+Every BioLaya sprint must be testable before moving to Colab.
 
-- `cpu` — force CPU; works with no GPU.
-- `cuda` — require an NVIDIA CUDA GPU; fails early if unavailable.
-- `auto` — use CUDA when visible to PyTorch, otherwise CPU.
-
-## Windows / PowerShell setup
+## Install
 
 ```powershell
 python -m venv .venv
@@ -15,44 +11,47 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[train,dev]"
 ```
 
-## Level 1 — structural CPU smoke (no model download)
+## CPU-only structural tests
 
 ```powershell
 python scripts\check_env.py --device cpu
 python scripts\local_smoke.py --device cpu --skip-model
+python scripts\sprint2_smoke.py --device cpu --preset smoke
+python scripts\plan_dapt.py --preset 10m
 pytest -q
 ```
 
-This validates package imports, schemas, CPU selection, and Drive-style checkpoint backup/restore using a temporary local directory.
+These do not require a CUDA GPU and Sprint-2 structural tests do not download ModernBERT.
 
-## Level 2 — one real Laya inference on CPU
+## Network/corpus test
 
-Requires internet the first time so Laya can be downloaded:
+```powershell
+python scripts\inspect_corpus.py --preset smoke
+```
+
+This verifies that the current PubMed and PMC streaming sources can actually yield usable documents before a large model is loaded.
+
+## Real CPU tests
+
+Sprint 1 one-example Laya inference:
 
 ```powershell
 python scripts\local_smoke.py --device cpu
 ```
 
-This may be slow, but it runs only one synthetic typed-decision example.
+Sprint 2 real ModernBERT MLM smoke (large download and slow on CPU):
 
-## Level 3 — CUDA smoke (optional)
+```powershell
+python scripts\train_dapt.py --preset smoke --device cpu --resume none
+```
+
+## CUDA tests
 
 ```powershell
 python scripts\check_env.py --device cuda
 python scripts\local_smoke.py --device cuda
+python scripts\sprint2_smoke.py --device cuda --preset smoke
+python scripts\train_dapt.py --preset smoke --device cuda --resume none
 ```
 
-If CUDA is unavailable, `--device cuda` fails immediately instead of silently falling back to CPU.
-
-## Small real-data evaluation locally
-
-```powershell
-python scripts\download_datasets.py bionli nli4ct
-python scripts\evaluate.py `
-  --dataset-file data\processed\bionli\test.jsonl `
-  --device cpu `
-  --max-examples 5 `
-  --output-dir results\local_cpu_smoke
-```
-
-Replace `cpu` by `cuda` on a CUDA machine.
+Explicit CUDA mode fails immediately when CUDA is unavailable.

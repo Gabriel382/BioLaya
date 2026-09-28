@@ -1,32 +1,21 @@
 # %% [markdown]
 # # BioLaya Sprint 1 — Google Colab + Google Drive
-# Canonical Sprint 1 notebook companion. The .ipynb is the file intended to be
-# copied into Google Drive and opened with Colab.
+# Download/copy `01_sprint1_colab.ipynb` into Google Drive and open it with Colab.
+# The notebook installs BioLaya directly from GitHub; no repository clone is required.
 
 # %%
-DEVICE = "auto"  # "auto", "cpu", or "cuda"
+DEVICE = "auto"  # use "cuda" to require a real Colab GPU
 DRIVE_ROOT = "/content/drive/MyDrive/BioLaya"
 GITHUB_REPO = "https://github.com/Gabriel382/BioLaya.git"
 
 # %%
-# Colab-only mount.
 from google.colab import drive
 drive.mount("/content/drive")
 
 # %%
-# Install the current GitHub version. In the .ipynb this is shown as a %pip cell.
 import subprocess, sys
-subprocess.run(
-    [
-        sys.executable,
-        "-m",
-        "pip",
-        "install",
-        "--upgrade",
-        "biolaya[train] @ git+https://github.com/Gabriel382/BioLaya.git",
-    ],
-    check=True,
-)
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--upgrade", "biolaya[train,colab] @ git+https://github.com/Gabriel382/BioLaya.git"], check=True)
+subprocess.run([sys.executable, "-m", "pip", "check"], check=True)
 
 # %%
 import json
@@ -52,17 +41,7 @@ subprocess.run(["biolaya-smoke", "--device", DEVICE], check=True)
 
 # %%
 RESULT_LOCAL = "/content/biolaya_results/sprint1/laya_base_bionli_smoke"
-subprocess.run(
-    [
-        "biolaya-eval",
-        str(DATA_ROOT / "bionli" / "test.jsonl"),
-        "--model", "english",
-        "--device", DEVICE,
-        "--max-examples", "50",
-        "--output-dir", RESULT_LOCAL,
-    ],
-    check=True,
-)
+subprocess.run(["biolaya-eval", str(DATA_ROOT / "bionli" / "test.jsonl"), "--model", "english", "--device", DEVICE, "--max-examples", "50", "--output-dir", RESULT_LOCAL], check=True)
 
 # %%
 import shutil

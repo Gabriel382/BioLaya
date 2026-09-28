@@ -133,3 +133,56 @@ def smoke_main():
         pred = runner.predict_one(example)
         report.update(mode="model", prediction=pred.prediction, confidence=pred.confidence, probabilities=pred.probabilities)
     print(json.dumps(report, indent=2, default=str))
+
+
+def plan_dapt_main():
+    p = argparse.ArgumentParser(description="Plan BioLaya Sprint-2 biomedical MLM DAPT")
+    p.add_argument("--preset", default="10m")
+    args = p.parse_args()
+    from biolaya.config import load_dapt_preset
+    from biolaya.training.dapt import plan_dapt
+    print(json.dumps(plan_dapt(load_dapt_preset(args.preset)), indent=2))
+
+
+def corpus_main():
+    p = argparse.ArgumentParser(description="Preflight BioLaya Sprint-2 biomedical corpus")
+    p.add_argument("--preset", default="10m")
+    p.add_argument("--partition", default="train", choices=["train", "validation"])
+    args = p.parse_args()
+    from biolaya.config import load_dapt_preset
+    from biolaya.corpus.biomedical_stream import preflight_sources
+    print(json.dumps(preflight_sources(load_dapt_preset(args.preset), args.partition), indent=2))
+
+
+def dapt_main():
+    p = argparse.ArgumentParser(description="Train BioLaya Sprint-2 biomedical ModernBERT backbone")
+    p.add_argument("--preset", default="10m")
+    p.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
+    p.add_argument("--resume", default="auto")
+    p.add_argument("--drive-run-dir", default=None)
+    args = p.parse_args()
+    from biolaya.config import load_dapt_preset
+    from biolaya.training.dapt import train_dapt
+    result = train_dapt(
+        load_dapt_preset(args.preset),
+        device=args.device,
+        resume=args.resume,
+        drive_run_dir=args.drive_run_dir,
+    )
+    print(json.dumps(result, indent=2, default=str))
+
+
+def sprint2_smoke_main():
+    p = argparse.ArgumentParser(description="BioLaya Sprint-2 structural smoke test")
+    p.add_argument("--device", default="cpu", choices=["auto", "cpu", "cuda"])
+    p.add_argument("--preset", default="smoke")
+    args = p.parse_args()
+    from biolaya.config import load_dapt_preset
+    from biolaya.training.dapt import plan_dapt, resolve_runtime
+    cfg = load_dapt_preset(args.preset)
+    report = {
+        "ok": True,
+        "runtime": resolve_runtime(args.device, cfg["training"].get("mixed_precision", "auto"), cfg["training"].get("gradient_checkpointing", True)).__dict__,
+        "plan": plan_dapt(cfg),
+    }
+    print(json.dumps(report, indent=2))

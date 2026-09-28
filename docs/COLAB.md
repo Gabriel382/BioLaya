@@ -1,37 +1,39 @@
-# Google Colab + Google Drive
+# BioLaya on Google Colab
 
-BioLaya is Colab-first. The Colab VM is disposable compute; Google Drive is persistent recovery storage.
+BioLaya is Colab-first but not Colab-only.
 
-## Canonical notebook per sprint
+## Canonical notebooks
 
-Every BioLaya sprint ZIP/release includes a self-contained notebook:
+- Sprint 1: `notebooks/01_sprint1_colab.ipynb`
+- Sprint 2: `notebooks/02_sprint2_colab.ipynb`
 
-`notebooks/NN_sprintN_colab.ipynb`
+The `.ipynb` files live in the ZIP and GitHub repository. The intended workflow is to download/copy the relevant notebook into **Google Drive**, open it with **Google Colab**, and execute it there.
 
-The same notebook is committed to GitHub. Download/copy it to Google Drive, open it with Google Colab, and run it there.
-
-It installs BioLaya directly from GitHub:
+The notebook installs BioLaya directly from GitHub; a clone is not required:
 
 ```python
-%pip install -q --upgrade "biolaya[train] @ git+https://github.com/Gabriel382/BioLaya.git"
+%pip install -q --upgrade "biolaya[train,colab] @ git+https://github.com/Gabriel382/BioLaya.git"
 ```
 
-No clone is required for normal Colab use.
+The `colab` extra aligns `fsspec==2025.3.0` and `gcsfs==2025.3.0` to avoid the dependency conflict observed in the standard Colab environment.
 
 ## Device policy
 
-All model/training entry points use `--device auto|cpu|cuda`:
+Use `DEVICE="cuda"` for real Colab training. CUDA mode is strict: if Colab did not actually assign a GPU, BioLaya aborts instead of silently training on CPU.
 
-- `auto`: CUDA if PyTorch can see it, otherwise CPU.
-- `cpu`: force CPU for local correctness tests.
-- `cuda`: require CUDA and fail early if no GPU is available.
-
-For actual Colab training use `DEVICE="cuda"` after selecting a GPU runtime.
+`DEVICE="auto"` is useful for portable notebooks/tests; it selects CUDA if PyTorch sees it and CPU otherwise.
 
 ## Storage policy
 
-Use `/content` for live datasets, caches and training. Use Drive for checkpoints, logs, results, final models and manifests.
+Train from `/content` for fast local VM I/O. Persist only expensive/recovery artifacts to Drive:
 
-Default Drive root: `/content/drive/MyDrive/BioLaya`
+```text
+MyDrive/BioLaya/
+├── checkpoints/
+├── logs/
+├── results/
+├── final_models/
+└── manifests/
+```
 
-Do not use Drive as the Hugging Face cache or as the live training directory.
+Sprint 2 automatically backs up Trainer checkpoints and restores the newest one with `--resume auto`.

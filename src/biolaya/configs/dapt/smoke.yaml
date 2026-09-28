@@ -1,0 +1,44 @@
+run_name: biolaya-sprint2-smoke
+seed: 42
+output_dir: outputs/sprint2/biomodernbert_smoke
+model:
+  base_model: answerdotai/ModernBERT-large
+corpus:
+  validation_percent: 1
+  preflight: true
+  sources:
+  - name: pubmed
+    repo: slinusc/PubMedAbstractsSubset
+    split: train
+    weight: 0.8
+  - name: pmc
+    repo: aochongoliverli/pmc_openaccess_split
+    split: main
+    weight: 0.2
+    filter_licenses: true
+    allowed_licenses:
+    - CC0
+    - CC BY
+    - CC BY-SA
+  token_budget: 100000
+  validation_token_budget: 20000
+training:
+  sequence_length: 128
+  mlm_probability: 0.15
+  per_device_batch_size: 1
+  eval_batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 5.0e-05
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  mixed_precision: auto
+  gradient_checkpointing: true
+  logging_steps: 10
+  eval_steps: 25
+  save_steps: 25
+  save_total_limit: 2
+  drive_keep_checkpoints: 2
+  optimizer: adamw_torch
+  dataloader_num_workers: 0
+  report_to:
+  - tensorboard

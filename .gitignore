@@ -13,3 +13,6 @@ results/*
 dist/
 build/
 .env
+cache/
+hf_cache/
+wandb/

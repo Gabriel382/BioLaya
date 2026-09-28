@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "biolaya"
-version = "0.1.2"
+version = "0.2.0"
 description = "BioLaya: biomedical adaptation and evaluation of the Laya decision model"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-train = ["accelerate>=1.0", "tensorboard>=2.16"]
+train = ["transformers>=4.48,<6", "accelerate>=1.0", "tensorboard>=2.16"]
 colab = ["fsspec==2025.3.0", "gcsfs==2025.3.0"]
 dev = ["pytest>=8", "ruff>=0.6"]
 notebook = ["jupyter>=1", "ipykernel>=6"]
@@ -35,9 +35,16 @@ biolaya-drive = "biolaya.cli:drive_main"
 biolaya-eval = "biolaya.cli:eval_main"
 biolaya-data = "biolaya.cli:data_main"
 biolaya-smoke = "biolaya.cli:smoke_main"
+biolaya-plan-dapt = "biolaya.cli:plan_dapt_main"
+biolaya-dapt = "biolaya.cli:dapt_main"
+biolaya-corpus = "biolaya.cli:corpus_main"
+biolaya-sprint2-smoke = "biolaya.cli:sprint2_smoke_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+biolaya = ["configs/dapt/*.yaml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
