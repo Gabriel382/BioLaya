@@ -68,3 +68,14 @@ See `docs/ROADMAP.md` for Sprints 1–7.
 ## Upstream
 
 BioLaya depends on Laya rather than vendoring/forking it. Laya is Apache-2.0 and distributed as an installable Python package. BioLaya remains a separate research repository and records the pinned upstream version in `pyproject.toml`.
+
+
+## Colab dependency compatibility
+
+For Google Colab, install the dedicated extra so `gcsfs` and `fsspec` remain compatible with the Hugging Face Datasets version used by Sprint 1:
+
+```python
+%pip install -q --upgrade "biolaya[train,colab] @ git+https://github.com/Gabriel382/BioLaya.git"
+```
+
+The Colab extra currently pins `fsspec==2025.3.0` and `gcsfs==2025.3.0`. This is intentionally Colab-specific; local CPU/GPU installs do not require those pins.

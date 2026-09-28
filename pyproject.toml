@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "biolaya"
-version = "0.1.1"
+version = "0.1.2"
 description = "BioLaya: biomedical adaptation and evaluation of the Laya decision model"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,6 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 train = ["accelerate>=1.0", "tensorboard>=2.16"]
+colab = ["fsspec==2025.3.0", "gcsfs==2025.3.0"]
 dev = ["pytest>=8", "ruff>=0.6"]
 notebook = ["jupyter>=1", "ipykernel>=6"]
 
