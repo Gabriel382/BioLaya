@@ -1,0 +1,11 @@
+seed: 42
+datasets:
+  - bionli
+  - nli4ct
+  - chemprot
+  - ddi2013
+  - biored
+protocol:
+  relation_mode: gold_entity_pairs
+  nli_primitive: choice
+  relation_primitive: choice

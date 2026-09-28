@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "biolaya"
+version = "0.1.0"
+description = "BioLaya: biomedical adaptation and evaluation of the Laya decision model"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [{name = "Gabriel Medeiros"}]
+dependencies = [
+  "laya==0.3.20",
+  "datasets>=2.20,<4",
+  "huggingface_hub>=0.36",
+  "numpy>=1.26",
+  "pandas>=2.1",
+  "scikit-learn>=1.4",
+  "PyYAML>=6.0",
+  "pydantic>=2.7",
+  "tqdm>=4.66",
+  "bioc>=2.1",
+]
+
+[project.optional-dependencies]
+train = ["accelerate>=1.0", "tensorboard>=2.16"]
+dev = ["pytest>=8", "ruff>=0.6"]
+notebook = ["jupyter>=1", "ipykernel>=6"]
+
+[project.scripts]
+biolaya-env = "biolaya.cli:env_main"
+biolaya-drive = "biolaya.cli:drive_main"
+biolaya-eval = "biolaya.cli:eval_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

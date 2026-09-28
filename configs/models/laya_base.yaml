@@ -1,0 +1,5 @@
+name: laya-base
+upstream: convaiinnovations/laya
+router_model: english
+parameters: 421M
+context: 512
