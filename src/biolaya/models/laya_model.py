@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from biolaya.schemas import DecisionExample
+from biolaya.cloud.env import resolve_device
 
 
 @dataclass
@@ -15,12 +16,10 @@ class Prediction:
 
 
 class LayaDecisionModel:
-    def __init__(self, model: str = "english", device: str | None = None):
+    def __init__(self, model: str = "english", device: str | None = "auto"):
         from laya import Router
-        kwargs = {}
-        if device and device != "auto":
-            kwargs["device"] = device
-        self.router = Router(**kwargs)
+        self.device = resolve_device(device)
+        self.router = Router(device=self.device)
         self.model = model
 
     def predict_one(self, example: DecisionExample) -> Prediction:

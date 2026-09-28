@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "biolaya"
-version = "0.1.0"
+version = "0.1.1"
 description = "BioLaya: biomedical adaptation and evaluation of the Laya decision model"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,6 +32,8 @@ notebook = ["jupyter>=1", "ipykernel>=6"]
 biolaya-env = "biolaya.cli:env_main"
 biolaya-drive = "biolaya.cli:drive_main"
 biolaya-eval = "biolaya.cli:eval_main"
+biolaya-data = "biolaya.cli:data_main"
+biolaya-smoke = "biolaya.cli:smoke_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

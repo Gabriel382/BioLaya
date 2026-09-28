@@ -40,9 +40,26 @@ python scripts/evaluate.py \
 
 For a first Colab smoke test, add `--max-examples 50`.
 
-## Colab
+## Google Colab — canonical Sprint notebook
 
-Use `notebooks/00_colab_setup.ipynb` first, then `01_sprint1_walkthrough.ipynb`. See `docs/COLAB.md`.
+For Sprint 1 use **`notebooks/01_sprint1_colab.ipynb`**. Download/copy that notebook to Google Drive and open it with Google Colab. It mounts Drive and installs BioLaya directly from:
+
+`https://github.com/Gabriel382/BioLaya`
+
+No repository clone is required inside the Colab VM. See `docs/COLAB.md`.
+
+## Local validation before Colab
+
+BioLaya supports `auto`, `cpu`, and strict `cuda` device modes. A no-GPU machine can validate the project with:
+
+```bash
+python -m pip install -e ".[train,dev]"
+python scripts/check_env.py --device cpu
+python scripts/local_smoke.py --device cpu --skip-model
+pytest -q
+```
+
+For one real Laya inference on CPU run `python scripts/local_smoke.py --device cpu`. On a CUDA machine replace `cpu` with `cuda`. See `docs/LOCAL_TESTING.md`.
 
 ## Roadmap
 

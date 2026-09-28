@@ -1,33 +1,37 @@
-# Google Colab + Drive
+# Google Colab + Google Drive
 
-BioLaya is Colab-first. The Colab VM is treated as disposable compute; Google Drive is persistent recovery storage.
+BioLaya is Colab-first. The Colab VM is disposable compute; Google Drive is persistent recovery storage.
+
+## Canonical notebook per sprint
+
+Every BioLaya sprint ZIP/release includes a self-contained notebook:
+
+`notebooks/NN_sprintN_colab.ipynb`
+
+The same notebook is committed to GitHub. Download/copy it to Google Drive, open it with Google Colab, and run it there.
+
+It installs BioLaya directly from GitHub:
+
+```python
+%pip install -q --upgrade "biolaya[train] @ git+https://github.com/Gabriel382/BioLaya.git"
+```
+
+No clone is required for normal Colab use.
+
+## Device policy
+
+All model/training entry points use `--device auto|cpu|cuda`:
+
+- `auto`: CUDA if PyTorch can see it, otherwise CPU.
+- `cpu`: force CPU for local correctness tests.
+- `cuda`: require CUDA and fail early if no GPU is available.
+
+For actual Colab training use `DEVICE="cuda"` after selecting a GPU runtime.
 
 ## Storage policy
 
-Train/read caches under `/content`, not directly inside Drive. Drive is used for checkpoints, logs, results, final models and manifests.
+Use `/content` for live datasets, caches and training. Use Drive for checkpoints, logs, results, final models and manifests.
 
-Default Drive root:
+Default Drive root: `/content/drive/MyDrive/BioLaya`
 
-`/content/drive/MyDrive/BioLaya`
-
-Layout:
-
-- `checkpoints/`
-- `logs/`
-- `results/`
-- `final_models/`
-- `manifests/`
-
-Future training scripts use `biolaya.cloud.drive.backup_checkpoint()` and `restore_latest_checkpoint()` so a Colab session can resume after disconnects.
-
-## New Colab session
-
-1. Select a GPU runtime.
-2. Mount Drive.
-3. Clone the BioLaya GitHub repository into `/content/BioLaya`.
-4. `pip install -e ".[train]"`.
-5. Run `python scripts/check_env.py` and confirm `cuda_available: true`.
-6. Initialize `/content/drive/MyDrive/BioLaya`.
-7. Restore the latest checkpoint if the current sprint has one.
-
-Do not use Drive as the Hugging Face cache or as the live training directory; repeated small-file I/O is slower and less reliable than `/content`.
+Do not use Drive as the Hugging Face cache or as the live training directory.

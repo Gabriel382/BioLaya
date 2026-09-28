@@ -1,4 +1,4 @@
-from __future__ import annotations
-import json
-from biolaya.cloud.env import environment_report
-print(json.dumps(environment_report(), indent=2))
+from biolaya.cli import env_main
+
+if __name__ == "__main__":
+    env_main()
