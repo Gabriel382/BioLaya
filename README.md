@@ -9,11 +9,17 @@ python -m pip install -e ".[train,systemone,dev]"
 python scripts/prepare_comparable_data.py \
   --biojev-train ../BioJev/data/sprint8/systemone_4b/train.jsonl \
   --biojev-dev ../BioJev/data/sprint8/systemone_4b/dev.jsonl
+# If the source train/dev contain overlaps, first inspect:
+# python scripts/prepare_comparable_data.py --audit-only
+# Then explicitly sanitize only training rows:
+# python scripts/prepare_comparable_data.py --overlap-policy drop-train
 python scripts/prepare_standard.py --source bionli --out data/standard/bionli
 python scripts/train_systemone.py --dry-run
 python scripts/train_systemone.py
 python scripts/eval_comparable.py --backend laya --limit 55
 ```
+
+**Dataset leakage audit:** [Split contamination and safe conversion](docs/SPLIT_LEAKAGE_AUDIT.md). The source BioJev Sprint8 data may contain overlapping training and development content; strict conversion defaults to rejecting overlaps.
 
 **Details:** [BioLaya full protocol](docs/BIOLAYA_FULL_PIPELINE.md). Existing biomedical MLM DAPT, Sprint 1 and Sprint 2 notebooks remain available below.
 

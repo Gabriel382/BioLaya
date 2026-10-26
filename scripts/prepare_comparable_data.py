@@ -10,6 +10,11 @@ def main():
     p.add_argument('--out',default='data/comparable/sprint8')
     p.add_argument('--max-train',type=int,default=0,help='For smoke experiments only')
     p.add_argument('--max-dev',type=int,default=0,help='For smoke experiments only')
+    p.add_argument('--overlap-policy', choices=('fail','drop-train'), default='fail',
+                   help='Explicitly filter contaminated TRAIN rows while preserving the full DEV split')
+    p.add_argument('--audit-only', action='store_true',
+                   help='Write overlap_audit.json and overlap_examples.csv; do not write training data')
     a=p.parse_args()
-    print(json.dumps(build(a.biojev_train,a.biojev_dev,a.out,max_train=a.max_train,max_dev=a.max_dev),indent=2))
+    print(json.dumps(build(a.biojev_train,a.biojev_dev,a.out,max_train=a.max_train,max_dev=a.max_dev,
+                            overlap_policy=a.overlap_policy,audit_only=a.audit_only),indent=2))
 if __name__=='__main__':main()
