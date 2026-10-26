@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "biolaya"
-version = "0.3.0"
+version = "0.3.3"
 description = "BioLaya: biomedical adaptation and evaluation of the Laya decision model"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [{name = "Gabriel Medeiros"}]
 dependencies = [
-  "laya==0.3.20",
+  "laya==0.4.15",
   "datasets>=2.20,<4",
   "huggingface_hub>=0.36",
   "numpy>=1.26",
@@ -25,7 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 train = ["transformers>=4.48,<6", "accelerate>=1.0", "tensorboard>=2.16"]
-systemone = ["laya==0.3.20", "transformers>=4.48,<6", "torch>=2.2"]
+systemone = ["laya==0.4.15", "transformers>=4.48,<6", "torch>=2.2"]
 colab = ["fsspec==2025.3.0", "gcsfs==2025.3.0"]
 dev = ["pytest>=8", "ruff>=0.6"]
 notebook = ["jupyter>=1", "ipykernel>=6"]

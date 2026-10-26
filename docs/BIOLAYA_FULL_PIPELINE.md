@@ -13,7 +13,7 @@ The existing BioLaya Sprint 1/2 implementation is retained, including optional b
 
 `python -m pip install -e '.[train,systemone,dev]'`
 
-Use CUDA torch matched to the machine. Laya is pinned to 0.3.20, and training flags follow that release. Confirm `laya-train --help` on the environment; upstream flags can change.
+Use CUDA torch matched to the machine. Laya is pinned to 0.4.15, and training flags follow that release. Confirm `laya-train --help` on the environment; upstream flags can change. The old BioLaya 0.3.20 dependency provided inference but was missing this training CLI.
 
 ## 1. Reuse identical BioJev SystemOne examples
 

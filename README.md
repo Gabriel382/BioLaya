@@ -47,7 +47,7 @@ Google Colab installs the current GitHub version directly:
 %pip install -q --upgrade "biolaya[train,colab] @ git+https://github.com/Gabriel382/BioLaya.git"
 ```
 
-BioLaya pins `laya==0.3.20`. The Colab extra also pins compatible `fsspec`/`gcsfs` versions for the current Colab + Hugging Face Datasets stack.
+BioLaya pins `laya==0.4.15` for its supported `laya-train` CLI. Version `0.3.20` installs the inference runtime but does not provide that command in tested environments. The Colab extra also pins compatible `fsspec`/`gcsfs` versions for the current Colab + Hugging Face Datasets stack.
 
 ## Canonical Colab notebooks
 

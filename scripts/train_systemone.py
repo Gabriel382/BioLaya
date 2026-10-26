@@ -3,6 +3,7 @@
 import argparse
 import json
 import shutil
+from importlib.metadata import PackageNotFoundError, version
 import subprocess
 from pathlib import Path
 import yaml
@@ -10,7 +11,17 @@ import yaml
 def build_command(config, dry_run=False):
     t=config['training']
     exe=shutil.which('laya-train')
-    if exe is None: raise RuntimeError('laya-train missing: pip install -e ".[systemone]" (laya==0.3.20)')
+    if exe is None:
+        try:
+            found = version('laya')
+        except PackageNotFoundError:
+            found = 'not installed'
+        raise RuntimeError(
+            f'laya-train executable missing (installed laya={found}). '
+            'BioLaya SystemOne requires laya==0.4.15. '
+            'Run: python -m pip install -e " .[train,systemone,dev]" '.replace('" .[','".[')
+            + '; then check: command -v laya-train && laya-train --help'
+        )
     cmd=[exe,'--data',str(config['data']['train']),'--base',str(config['model']['base']),
          '--out',str(config['model']['output']),'--loss',str(t.get('loss','soft-ce')),
          '--epochs',str(t.get('epochs',3)),'--micro-batch',str(t.get('micro_batch',4)),
