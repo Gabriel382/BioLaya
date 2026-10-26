@@ -1,0 +1,17 @@
+seed: 42
+model:
+  base: answerdotai/ModernBERT-large
+  output: outputs/biolaya/standard/general_mnli
+labels: [contradiction, entailment, neutral]
+data:
+  train: data/standard/mnli/train.jsonl
+  dev: data/standard/mnli/dev.jsonl
+training:
+  epochs: 2
+  max_length: 512
+  batch_size: 4
+  eval_batch_size: 8
+  grad_accum: 8
+  learning_rate: 2.0e-5
+  bf16: true
+  gradient_checkpointing: true

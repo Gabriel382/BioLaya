@@ -16,3 +16,12 @@ build/
 cache/
 hf_cache/
 wandb/
+
+# Full biomedical training/data/release artifacts
+data/comparable/
+data/standard/
+outputs/biolaya/
+results/comparison/
+results/standard/
+*.gguf
+.env

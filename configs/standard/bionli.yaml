@@ -1,0 +1,19 @@
+seed: 42
+model:
+  base: answerdotai/ModernBERT-large
+  # Change base to outputs/sprint2/biomodernbert_100m/final for DAPT branch
+  output: outputs/biolaya/standard/bionli
+labels: [contradiction, entailment, neutral]
+data:
+  train: data/standard/bionli/train.jsonl
+  dev: data/standard/bionli/dev.jsonl
+training:
+  epochs: 3
+  max_length: 512
+  batch_size: 4
+  eval_batch_size: 8
+  grad_accum: 8
+  learning_rate: 2.0e-5
+  bf16: true
+  gradient_checkpointing: true
+  logging_steps: 20

@@ -1,5 +1,23 @@
 # BioLaya
 
+> **Current project status:** Sprint 1 and 2 foundation retained; reproducible Standard NLI and native Laya decision training/evaluation pipeline added. **No trained BioLaya SystemOne checkpoints or measured results are contained in this source release.** For native Ollama export see the converter gate and runtime requirements in [the full pipeline guide](docs/BIOLAYA_FULL_PIPELINE.md).
+
+## Standard & SystemOne workflows
+
+```bash
+python -m pip install -e ".[train,systemone,dev]"
+python scripts/prepare_comparable_data.py \
+  --biojev-train ../BioJev/data/sprint8/systemone_4b/train.jsonl \
+  --biojev-dev ../BioJev/data/sprint8/systemone_4b/dev.jsonl
+python scripts/prepare_standard.py --source bionli --out data/standard/bionli
+python scripts/train_systemone.py --dry-run
+python scripts/train_systemone.py
+python scripts/eval_comparable.py --backend laya --limit 55
+```
+
+**Details:** [BioLaya full protocol](docs/BIOLAYA_FULL_PIPELINE.md). Existing biomedical MLM DAPT, Sprint 1 and Sprint 2 notebooks remain available below.
+
+
 BioLaya is a biomedical specialization of the open-source **Laya** decision model. The project mirrors BioJev's seven-sprint scientific protocol while keeping Laya's native non-autoregressive typed-decision architecture.
 
 ## Infrastructure
