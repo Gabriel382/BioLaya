@@ -70,36 +70,61 @@ def as_text(value):
 
 
 def _pair_annotations(row):
-    """Read explicit source target-pair metadata; never infer a pair from row ID.
+    """Represent BioJev RE target pair from subject/object or BioLaya metadata.
 
-    The original BioLaya BigBio adapter writes entity1, entity2, arg1_id
-    and arg2_id under metadata. Preserve them: two different annotated pairs
-    can share both document text and the same surface mention string.
+    BioJev processed ChemProt/DDI2013/BioRED has root fields `subject` and
+    `object` with optional entity types, and metadata.document_id. The older
+    BioLaya choice rows store `entity1`, `entity2`, `arg1_id`, `arg2_id` in
+    metadata instead. Do not use a unique relation-row ID or the gold label
+    as a model feature: that would make evaluation meaningless.
     """
-    md = row.get('metadata')
-    md = md if isinstance(md, dict) else {}
+    md=row.get('metadata') if isinstance(row.get('metadata'),dict) else {}
+
     def pick(*names):
-        for src in (md, row):
+        for src in (md,row):
             for name in names:
                 x=src.get(name)
-                if x is not None and x != '' and x != []:
-                    return as_text(x)
+                if x is not None and x!='' and x!=[] and x!={}:
+                    return x
         return None
+
+    def entity_text(x):
+        if x is None: return None
+        if isinstance(x,dict):
+            # Prefer human-readable mention, preserve supplied offsets/IDs in
+            # the pair identifier if present (never derive from gold label).
+            for k in ('text','name','mention','surface','value','label'):
+                if x.get(k) not in (None,'',[],{}):
+                    return as_text(x[k])
+            return as_text(x)
+        return as_text(x)
+
     a1=pick('arg1_id','head_id','subject_id','entity1_id')
     a2=pick('arg2_id','tail_id','object_id','entity2_id')
-    e1=pick('entity1','head_entity','head_text','e1','head')
-    e2=pick('entity2','tail_entity','tail_text','e2','tail')
-    # A structure must specify the target, not merely be an unrelated row id.
-    if not (a1 and a2) and not (e1 and e2):
-        return None, None
-    description=[]
-    if e1 and e2: description.append(f'Entity 1: {e1}; Entity 2: {e2}.')
+    e1=pick('entity1','subject','head_entity','head_text','e1','head')
+    e2=pick('entity2','object','tail_entity','tail_text','e2','tail')
+    t1=pick('subject_type','entity1_type','head_type')
+    t2=pick('object_type','entity2_type','tail_type')
+    e1=entity_text(e1)
+    e2=entity_text(e2)
+    if e1 is not None and not e1.strip():e1=None
+    if e2 is not None and not e2.strip():e2=None
+    if not (e1 and e2) and not (a1 and a2):
+        return None,None
+    pieces=[]
+    if e1 and e2:
+        # These two features are part of the actual task input in BioJev,
+        # even when there are no mention IDs in the processed JSONL.
+        pieces.append(f'Target subject: {e1}. Target object: {e2}.')
+    if t1 or t2:
+        pieces.append(f'Subject type: {entity_text(t1) or "unspecified"}; '
+                      f'object type: {entity_text(t2) or "unspecified"}.')
     if a1 and a2:
-        description.append(f'Annotated entity IDs: entity 1 [{a1}], entity 2 [{a2}].')
-    # Both the entity names and (when available) the *pair* ids disambiguate
-    # source relations; document identities are intentionally excluded.
-    signature={'entity1':e1,'entity2':e2,'arg1_id':a1,'arg2_id':a2}
-    return ' '.join(description), signature
+        pieces.append(f'Target mention IDs: {as_text(a1)} -> {as_text(a2)}.')
+    signature={'entity1':e1,'entity2':e2,'arg1_id':as_text(a1) if a1 is not None else None,
+               'arg2_id':as_text(a2) if a2 is not None else None,
+               'subject_type':entity_text(t1),'object_type':entity_text(t2)}
+    return '\n'.join(pieces),signature
 
 
 def normalize_record(row, source, index):
@@ -150,10 +175,6 @@ def normalize_record(row, source, index):
                 raise ValueError(f'no raw input text found; available keys={sorted(row)}')
             text=as_text(text)
             question=as_text(first(row,'question','instructions','prompt') or '')
-            e1=first(row,'entity1','head','head_entity','e1')
-            e2=first(row,'entity2','tail','tail_entity','e2')
-            if e1 is not None and e2 is not None:
-                question += f'\nEntity 1: {as_text(e1)}; Entity 2: {as_text(e2)}.'
     pair_description, pair_signature = (None, None)
     if source in ('chemprot', 'ddi2013', 'biored'):
         pair_description, pair_signature = _pair_annotations(row)
@@ -162,12 +183,16 @@ def normalize_record(row, source, index):
         # Always include explicit pair IDs when available; those distinguish
         # identical surface forms referring to distinct annotated entities.
         if pair_description:
-            if pair_signature.get('arg1_id') and pair_signature.get('arg2_id'):
-                suffix=(f"Target pair IDs: entity1={pair_signature['arg1_id']}, "
-                        f"entity2={pair_signature['arg2_id']}.")
-                question = str(question).rstrip() + '\n' + suffix
-            elif not str(question).strip():
-                question=pair_description
+            # If a legacy BioLaya choice row already names both entities,
+            # don't repeat their names, but retain annotation IDs if present.
+            old_choice = ('instructions' in row or 'question' in row) and bool(str(question).strip())
+            if old_choice:
+                a1=pair_signature.get('arg1_id')
+                a2=pair_signature.get('arg2_id')
+                if a1 and a2:
+                    question=str(question).rstrip()+f'\nTarget pair IDs: entity1={a1}, entity2={a2}.'
+            else:
+                question=(str(question).rstrip()+'\n'+pair_description).strip()
     if not str(text).strip() or not str(label).strip(): raise ValueError('empty text or label')
     if not rid:
         rid=f'__missing_id__:{source}:{index}'
@@ -224,6 +249,27 @@ def stratified_holdout(rows, *, seed=42, fraction=.1, group_by_document=False):
         n=min(n,len(groups)-1)
         for items in groups[:n]:dev.extend(items)
         for items in groups[n:]:train.extend(items)
+    # A rare relation class may occur only in a document whose primary label
+    # is common. The stratifier can assign that document to internal dev;
+    # restore training-label coverage by moving whole document groups back to
+    # train, never by leaking examples from official evaluation.
+    labels_needed={r['label'] for r in rows}
+    labels_in_train={r['label'] for r in train}
+    if labels_needed-labels_in_train and dev:
+        by_group=defaultdict(list)
+        group_id=(document_fingerprint if group_by_document else fingerprint)
+        for r in dev:by_group[group_id(r)].append(r)
+        to_move=set()
+        for missing in sorted(labels_needed-labels_in_train):
+            options=[(len(items),k) for k,items in by_group.items()
+                     if k not in to_move and any(r['label']==missing for r in items)]
+            if not options:continue
+            chosen=min(options)[1]
+            to_move.add(chosen)
+            labels_in_train.update(r['label'] for r in by_group[chosen])
+        if to_move:
+            train.extend(r for k in sorted(to_move) for r in by_group[k])
+            dev=[r for r in dev if group_id(r) not in to_move]
     rng.shuffle(train);rng.shuffle(dev)
     return train,dev
 
@@ -333,7 +379,7 @@ def create_task(name, root, biojev_root, out_dir, cfg_dir, base, seed, fraction)
                 raise ValueError(
                     f'{name}/{split_name}: {len(conflicts)} contradictory labels on indistinguishable '
                     f'model inputs; samples={json.dumps(sample, ensure_ascii=False)}. '
-                    'If IDs and entity spans cannot disambiguate, this could be a genuinely multi-label relation '
+                    'If subject/object and source mention IDs cannot disambiguate, this could be a genuinely multi-label relation '
                     'and needs a multi-label training head; do not rename or drop gold classes.')
     labels=sorted({r['label'] for r in train})
     unseen={r['label'] for r in dev+test}-set(labels)
@@ -367,6 +413,7 @@ def create_task(name, root, biojev_root, out_dir, cfg_dir, base, seed, fraction)
            'split_overlap_granularity': 'document' if name in ('chemprot','ddi2013','biored') else 'input',
            'pair_annotations_train':sum(bool(r.get('pair_annotations_present')) for r in train),
            'pair_ids_train':sum(bool(r.get('pair_ids_present')) for r in train),
+           'pair_source':'root subject/object or explicit entity metadata' if name in ('chemprot','ddi2013','biored') else None,
            'labels':labels,'config':str(configpath),
            'note':'Evaluation labels and instances preserved. Compare with the exact same BioJev dataset IDs and length policy.'}
     (taskdir/'manifest.json').write_text(json.dumps(audit,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')

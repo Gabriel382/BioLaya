@@ -15,10 +15,14 @@ from prepare_five_benchmarks import DATASETS,filepath,read_rows,normalize_record
 def audit_file(source, split, path):
     keys=Counter();meta_keys=Counter();labels=Counter();failures=Counter()
     input_labels=defaultdict(set); input_counts=Counter(); pair_covered=0; pair_id_covered=0
-    documents=Counter(); total=0
+    documents=Counter(); total=0; root_subject_object_coverage=0; root_subject_object_distinct=set()
     for i,row in enumerate(read_rows(path)):
         total+=1
         keys.update(row.keys())
+        if row.get('subject') not in (None,'') and row.get('object') not in (None,''):
+            root_subject_object_coverage+=1
+            # Only counts unique pair descriptions, not raw biomedical names.
+            root_subject_object_distinct.add((str(row['subject']),str(row['object'])))
         meta=row.get('metadata')
         if isinstance(meta,dict):meta_keys.update(meta.keys())
         try:
@@ -36,6 +40,8 @@ def audit_file(source, split, path):
             'root_keys':sorted(keys),'metadata_keys':sorted(meta_keys),
             'label_names':dict(labels.most_common(30)),
             'pair_annotation_coverage':pair_covered,'pair_id_coverage':pair_id_covered,
+            'root_subject_object_coverage':root_subject_object_coverage,
+            'distinct_subject_object_pairs':len(root_subject_object_distinct),
             'distinct_document_contexts':len(documents),
             'repeated_model_inputs':sum(n-1 for n in input_counts.values() if n>1),
             'conflicting_label_inputs':sum(len(labs)>1 for labs in input_labels.values()),
