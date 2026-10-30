@@ -69,6 +69,39 @@ def as_text(value):
     return str(value)
 
 
+def _pair_annotations(row):
+    """Read explicit source target-pair metadata; never infer a pair from row ID.
+
+    The original BioLaya BigBio adapter writes entity1, entity2, arg1_id
+    and arg2_id under metadata. Preserve them: two different annotated pairs
+    can share both document text and the same surface mention string.
+    """
+    md = row.get('metadata')
+    md = md if isinstance(md, dict) else {}
+    def pick(*names):
+        for src in (md, row):
+            for name in names:
+                x=src.get(name)
+                if x is not None and x != '' and x != []:
+                    return as_text(x)
+        return None
+    a1=pick('arg1_id','head_id','subject_id','entity1_id')
+    a2=pick('arg2_id','tail_id','object_id','entity2_id')
+    e1=pick('entity1','head_entity','head_text','e1','head')
+    e2=pick('entity2','tail_entity','tail_text','e2','tail')
+    # A structure must specify the target, not merely be an unrelated row id.
+    if not (a1 and a2) and not (e1 and e2):
+        return None, None
+    description=[]
+    if e1 and e2: description.append(f'Entity 1: {e1}; Entity 2: {e2}.')
+    if a1 and a2:
+        description.append(f'Annotated entity IDs: entity 1 [{a1}], entity 2 [{a2}].')
+    # Both the entity names and (when available) the *pair* ids disambiguate
+    # source relations; document identities are intentionally excluded.
+    signature={'entity1':e1,'entity2':e2,'arg1_id':a1,'arg2_id':a2}
+    return ' '.join(description), signature
+
+
 def normalize_record(row, source, index):
     """Accept BioLaya choice rows and common BioJev NLI/RE labelled rows.
 
@@ -121,10 +154,30 @@ def normalize_record(row, source, index):
             e2=first(row,'entity2','tail','tail_entity','e2')
             if e1 is not None and e2 is not None:
                 question += f'\nEntity 1: {as_text(e1)}; Entity 2: {as_text(e2)}.'
+    pair_description, pair_signature = (None, None)
+    if source in ('chemprot', 'ddi2013', 'biored'):
+        pair_description, pair_signature = _pair_annotations(row)
+        # Do not accidentally add the same target metadata twice when a row
+        # already includes entity *names* in the natural-language question.
+        # Always include explicit pair IDs when available; those distinguish
+        # identical surface forms referring to distinct annotated entities.
+        if pair_description:
+            if pair_signature.get('arg1_id') and pair_signature.get('arg2_id'):
+                suffix=(f"Target pair IDs: entity1={pair_signature['arg1_id']}, "
+                        f"entity2={pair_signature['arg2_id']}.")
+                question = str(question).rstrip() + '\n' + suffix
+            elif not str(question).strip():
+                question=pair_description
     if not str(text).strip() or not str(label).strip(): raise ValueError('empty text or label')
     if not rid:
         rid=f'__missing_id__:{source}:{index}'
-    return {'id':rid, 'source':source, 'text':str(text), 'question':str(question), 'label':str(label)}
+    result = {'id':rid, 'source':source, 'text':str(text), 'question':str(question), 'label':str(label)}
+    if source in ('chemprot','ddi2013','biored'):
+        result['pair_annotations_present']=bool(pair_signature)
+        result['pair_ids_present']=bool(pair_signature and pair_signature.get('arg1_id') and pair_signature.get('arg2_id'))
+        if pair_signature:
+            result['pair_annotation']=pair_signature
+    return result
 
 
 def canonical_id(value):
@@ -145,18 +198,32 @@ def test_ids_from_biojev(biojev_root):
     return ids, path, rows
 
 
-def stratified_holdout(rows, *, seed=42, fraction=.1):
-    groups=defaultdict(list)
-    for r in rows:groups[r['label']].append(r)
+def stratified_holdout(rows, *, seed=42, fraction=.1, group_by_document=False):
+    """Content-group stratification: identical input pairs never straddle splits.
+
+    Contradictory labels on identical inputs are retained in the same group
+    instead of silently dropping data or splitting conflicting examples.
+    """
+    by_fingerprint=defaultdict(list)
+    for row in rows:
+        key = document_fingerprint(row) if group_by_document else fingerprint(row)
+        by_fingerprint[key].append(row)
+    grouped=defaultdict(list)
+    for key in sorted(by_fingerprint):
+        items=by_fingerprint[key]
+        counts=Counter(r['label'] for r in items)
+        primary=sorted(counts.items(),key=lambda kv:(-kv[1],kv[0]))[0][0]
+        grouped[primary].append(items)
     rng=random.Random(seed)
-    train, dev=[],[]
-    for label in sorted(groups):
-        examples=groups[label][:]
-        rng.shuffle(examples)
-        n=max(1, int(round(len(examples)*fraction))) if len(examples)>1 else 0
-        n=min(n,len(examples)-1)
-        dev += examples[:n]
-        train += examples[n:]
+    train,dev=[],[]
+    for label in sorted(grouped):
+        groups=grouped[label][:]
+        rng.shuffle(groups)
+        # group count rather than row count avoids boundary-crossing copies.
+        n=max(1, int(round(len(groups)*fraction))) if len(groups)>1 else 0
+        n=min(n,len(groups)-1)
+        for items in groups[:n]:dev.extend(items)
+        for items in groups[n:]:train.extend(items)
     rng.shuffle(train);rng.shuffle(dev)
     return train,dev
 
@@ -166,11 +233,18 @@ def fingerprint(row):
     return hashlib.sha256(json.dumps(data,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
 
 
-def remove_cross_split_duplicates(train, dev, evaluation):
+def document_fingerprint(row):
+    """Hash source + complete document context, without pair-specific question."""
+    return hashlib.sha256(json.dumps({'text':row['text'], 'source':row['source']},
+        ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+
+
+def remove_cross_split_duplicates(train, dev, evaluation, *, by_document=False):
     # Preserve dev and evaluation, remove exact text duplicates from training.
-    held={fingerprint(x) for x in dev+evaluation}
-    filtered=[x for x in train if fingerprint(x) not in held]
-    overlap_eval=len({fingerprint(x) for x in dev}&{fingerprint(x) for x in evaluation})
+    fp=document_fingerprint if by_document else fingerprint
+    held={fp(x) for x in dev+evaluation}
+    filtered=[x for x in train if fp(x) not in held]
+    overlap_eval=len({fp(x) for x in dev}&{fp(x) for x in evaluation})
     if overlap_eval:
         # Do not silently score on material seen by model-selection validation.
         raise ValueError(f'{overlap_eval} dev/evaluation overlapping fingerprints; revise the split policy')
@@ -198,6 +272,7 @@ def create_task(name, root, biojev_root, out_dir, cfg_dir, base, seed, fraction)
     sources={'train':str(trainpath),'dev':str(devpath) if devpath else None,
              'test':str(testpath) if testpath else None}
     derived_dev=False
+    removed_pre_dev=0
     eval_original_split='test'
     if name=='bionli':
         # A provided test file cannot be assumed to be the BioJev 3,599 subset.
@@ -210,6 +285,13 @@ def create_task(name, root, biojev_root, out_dir, cfg_dir, base, seed, fraction)
               'do not invent new test samples. Check source ID schema/order.')
         test=from_train
         train=[r for r in train if canonical_id(r['id']) not in biojev_ids]
+        # Non-identical IDs can still contain duplicate premise/hypothesis
+        # pairs. Remove all evaluation-content copies *before* splitting an
+        # internal dev: never allow a test example into model selection.
+        eval_fingerprints={fingerprint(row) for row in test}
+        before=len(train)
+        train=[row for row in train if fingerprint(row) not in eval_fingerprints]
+        removed_pre_dev=before-len(train)
         sources['test']=str(predpath)+' [ID membership only]'
         dev=None # derived from remaining train, not from the held-out test
     elif name=='nli4ct':
@@ -223,9 +305,11 @@ def create_task(name, root, biojev_root, out_dir, cfg_dir, base, seed, fraction)
         raise FileNotFoundError(f'{name}: test missing; cannot reproduce frozen benchmark')
 
     if dev is None:
-        train,dev=stratified_holdout(train,seed=seed,fraction=fraction)
+        train,dev=stratified_holdout(train,seed=seed,fraction=fraction,
+                                    group_by_document=name in ('chemprot','ddi2013','biored'))
         derived_dev=True
-    train,removed=remove_cross_split_duplicates(train,dev,test)
+    train,removed=remove_cross_split_duplicates(train,dev,test,
+                         by_document=name in ('chemprot','ddi2013','biored'))
     if not train or not dev or not test:
         raise ValueError(f'{name}: empty train/dev/evaluation after split handling')
     if name in ('chemprot','ddi2013','biored'):
@@ -233,13 +317,24 @@ def create_task(name, root, biojev_root, out_dir, cfg_dir, base, seed, fraction)
         # collapse to the identical unmarked text while having different labels.
         for split_name, values in [('train',train),('dev',dev),('evaluation',test)]:
             known={}
+            conflicts=[]
             for row in values:
                 key=(row['text'],row['question'])
-                if key in known and known[key]!=row['label']:
-                    raise ValueError(
-                      f'{name}/{split_name}: conflicting labels for identical text+question; '
-                      'entity-pair spans or mention IDs may be missing from BioJev input format')
-                known[key]=row['label']
+                if key in known and known[key]['label'] != row['label']:
+                    conflicts.append((known[key],row))
+                else:
+                    known[key]=row
+            if conflicts:
+                sample=[{'ids':[p['id'] for p in pair],
+                         'labels':[p['label'] for p in pair],
+                         'pair_metadata_present':[p.get('pair_annotations_present',False) for p in pair],
+                         'pair_ids_present':[p.get('pair_ids_present',False) for p in pair]}
+                        for pair in conflicts[:3]]
+                raise ValueError(
+                    f'{name}/{split_name}: {len(conflicts)} contradictory labels on indistinguishable '
+                    f'model inputs; samples={json.dumps(sample, ensure_ascii=False)}. '
+                    'If IDs and entity spans cannot disambiguate, this could be a genuinely multi-label relation '
+                    'and needs a multi-label training head; do not rename or drop gold classes.')
     labels=sorted({r['label'] for r in train})
     unseen={r['label'] for r in dev+test}-set(labels)
     if unseen:raise ValueError(f'{name}: evaluation has classes missing in training: {sorted(unseen)}')
@@ -268,6 +363,10 @@ def create_task(name, root, biojev_root, out_dir, cfg_dir, base, seed, fraction)
            'evaluation':len(test),'evaluation_original_split':eval_original_split,
            'internal_dev_derived_from_training':derived_dev,
            'train_removed_by_exact_content_overlap':removed,
+           'additional_training_removed_for_evaluation_overlap_before_holdout':removed_pre_dev,
+           'split_overlap_granularity': 'document' if name in ('chemprot','ddi2013','biored') else 'input',
+           'pair_annotations_train':sum(bool(r.get('pair_annotations_present')) for r in train),
+           'pair_ids_train':sum(bool(r.get('pair_ids_present')) for r in train),
            'labels':labels,'config':str(configpath),
            'note':'Evaluation labels and instances preserved. Compare with the exact same BioJev dataset IDs and length policy.'}
     (taskdir/'manifest.json').write_text(json.dumps(audit,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')

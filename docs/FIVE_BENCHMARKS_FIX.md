@@ -1,29 +1,30 @@
-# BioLaya five-benchmark repair
+# BioLaya v0.3.5: preserving BioJev biomedical benchmark protocols
 
-The original `prepare_five_benchmarks.py` assumed that every source dataset had train/dev/test and was already a typed `state/instructions/criteria/gold` decision. That is not the original BioJev Sprint 4 protocol.
+This patch fixes two demonstrated limitations of v0.3.4. **The code has not been validated on the private BioJev data directory; verify the resulting audit before starting a long GPU run.**
 
-Repaired conventions:
+## BioNLI held-out evaluation: no train/dev/test duplication
 
-* **BioNLI:** read original `train`, reconstruct *exactly* the BioJev frozen test membership from `../BioJev/results/sprint4/frozen_4b/biojev-4b__bionli__test__seed42/predictions.jsonl` IDs. Only if all IDs match; otherwise fail. Create an internal development split from the remaining training pool.
-* **NLI4CT:** use official `dev` as *evaluation*, and create a separate internal validation partition only from `train`. Do not invent official test.
-* **ChemProt/BioRED:** adapt decision records and common NLI/relation-classification input formats; preserve original test and supplied validation.
-* **DDI2013:** preserve the original test. Build an internal development split only from train.
-* **Unrecognised schemas or integer labels:** fail closed; no guess at label-name mapping.
+- The exact **BioJev Sprint 4 BioNLI frozen-test ID membership** is preserved (3,599 expected) from the existing predictions file; gold labels come from the underlying BioNLI data. It is not a new random test set.
+- Before deriving an internal validation set, other training rows with identical (source, text, question) to a frozen evaluation item are removed, even when they have another ID. In the reported v0.3.4 run, this is needed because the internal development set overlapped evaluation by 89 content fingerprints. The exact count of removed training rows must be measured on your server.
+- The internal validation split is now performed **by identical input groups**, preventing duplicate examples from crossing train and validation. Evaluation is never used for model selection.
 
-Run:
+## ChemProt / DDI2013 / BioRED entity pairs
+
+- The original BioLaya BigBio relation loader represents a target through `metadata.entity1`, `metadata.entity2`, `metadata.arg1_id`, `metadata.arg2_id`. The previous v0.3.4 converter ignored `metadata`, conflating separate gold entity pairs that share the same article and surface names.
+- v0.3.5 reads this target metadata, appends the source annotated **pair IDs** to the question (when present), retains pair annotation metadata for audit, and checks that contradictory gold labels no longer refer to an identical input. The IDs **do not by themselves locate token spans** in context; results must be interpreted accordingly.
+- For relation corpora, any internal validation split is grouped by **whole document context** (all pairs from the same document together). The cross-split contamination filter is document-level, not pair-level.
+- If the same annotated input still has different gold labels, the script intentionally **blocks**. That may be a genuine multi-label annotation or missing mention offsets. A single-label classifier is inappropriate until the task is correctly specified. It does not invent entity spans, drop gold classes, or relabel examples.
+
+## Commands
 
 ```bash
+cd ~/git/postdoc/BioLaya
+unzip -o BioLaya_Five_Benchmarks_Fix_v0.3.5.zip -d .
 python scripts/audit_biojev_processed.py --root ../BioJev/data/processed
 python scripts/prepare_five_benchmarks.py --root ../BioJev/data/processed --require-test
 cat data/standard/five/audit.json
 ```
 
-Every successful task writes train/dev/evaluation files and an audit manifest. Original test is additionally written as test.jsonl, except for NLI4CT, whose evaluation is official dev. Only start training when all tasks report READY. Keep previous BioJev baseline scores, but comparisons must use identical evaluation IDs (and disclose different fine-tuning and sequence limits).
+The audit prints input and metadata **field names**, counts, and conflict counts, not biomedical document contents. If any task is still BLOCKED, inspect the diagnostic message and schema audit before attempting training; prior output from other runs may remain and should not be treated as valid merely because files exist.
 
-After training all five classifiers:
-
-```bash
-python scripts/eval_five_benchmarks.py --split evaluation
-```
-
-**Important:** `train_standard.py` constructs a standard sequence-classification head, which is not the native Laya SystemOne decision head. These experiments should be reported as distinct model variants.
+**Comparison warning:** BioLaya supervised per-task fine-tuning is not the same experimental regime as the *frozen* BioJev 4B classifier, even when they use identical evaluation examples. Compare only matched task/sample/label protocols and explicitly disclose supervision differences.
