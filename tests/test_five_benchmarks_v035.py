@@ -74,7 +74,7 @@ def test_bionli_eval_duplicate_removed_before_dev(tmp_path):
     assert not ({mod.fingerprint(r) for r in dev}&{mod.fingerprint(r) for r in evaluation})
 
 
-def test_same_annotated_pair_multilabel_fails_closed(tmp_path):
+def test_same_pair_different_labels_preserved_for_singlelabel_training(tmp_path):
     root=tmp_path/'processed'
     rows=[]
     for i in range(8):
@@ -83,11 +83,13 @@ def test_same_annotated_pair_multilabel_fails_closed(tmp_path):
     write(root/'biored/train.jsonl',rows)
     write(root/'biored/dev.jsonl',[choice('d','biored','dev doc','A')])
     write(root/'biored/test.jsonl',[choice('t','biored','test doc','B')])
-    with pytest.raises(ValueError, match='contradictory labels'):
-        mod.create_task('biored',root,tmp_path,tmp_path/'out',tmp_path/'config','base',42,.1)
+    report=mod.create_task('biored',root,tmp_path,tmp_path/'out',tmp_path/'config','base',42,.1)
+    assert report['status']=='READY'
+    assert report['input_ambiguity']['train']['conflicting_model_inputs']==8
+    train=list(mod.read_rows(tmp_path/'out/biored/train.jsonl'))
+    assert len(train)==16
 
-
-def test_unannotated_relation_conflict_not_resolved_by_row_id(tmp_path):
+def test_unannotated_relation_conflict_is_audited_not_leaked(tmp_path):
     root=tmp_path/'processed'
     rows=[]
     for i in range(8):
@@ -96,5 +98,8 @@ def test_unannotated_relation_conflict_not_resolved_by_row_id(tmp_path):
     write(root/'chemprot/train.jsonl',rows)
     write(root/'chemprot/dev.jsonl',[{'id':'d','text':'valid','label':'A'}])
     write(root/'chemprot/test.jsonl',[{'id':'t','text':'test','label':'B'}])
-    with pytest.raises(ValueError, match='contradictory labels'):
-        mod.create_task('chemprot',root,tmp_path,tmp_path/'out',tmp_path/'configs','base',42,.1)
+    result=mod.create_task('chemprot',root,tmp_path,tmp_path/'out',tmp_path/'configs','base',42,.1)
+    assert result['status']=='READY'
+    assert result['input_ambiguity']['train']['conflicting_model_inputs']==8
+    all_rows=list(mod.read_rows(tmp_path/'out/chemprot/train.jsonl'))
+    assert all('no-target-' not in r['question'] for r in all_rows)

@@ -14,7 +14,7 @@ from prepare_five_benchmarks import DATASETS,filepath,read_rows,normalize_record
 
 def audit_file(source, split, path):
     keys=Counter();meta_keys=Counter();labels=Counter();failures=Counter()
-    input_labels=defaultdict(set); input_counts=Counter(); pair_covered=0; pair_id_covered=0
+    input_labels=defaultdict(set); input_counts=Counter(); input_label_counts=defaultdict(Counter); pair_covered=0; pair_id_covered=0
     documents=Counter(); total=0; root_subject_object_coverage=0; root_subject_object_distinct=set()
     for i,row in enumerate(read_rows(path)):
         total+=1
@@ -33,6 +33,7 @@ def audit_file(source, split, path):
             inp=fingerprint(item)
             input_counts[inp]+=1
             input_labels[inp].add(item['label'])
+            input_label_counts[inp][item['label']]+=1
             documents[document_fingerprint(item)]+=1
         except Exception as exc:
             failures[str(exc).split(';')[0][:135]]+=1
@@ -45,6 +46,8 @@ def audit_file(source, split, path):
             'distinct_document_contexts':len(documents),
             'repeated_model_inputs':sum(n-1 for n in input_counts.values() if n>1),
             'conflicting_label_inputs':sum(len(labs)>1 for labs in input_labels.values()),
+            'rows_on_conflicting_inputs':sum(sum(c.values()) for c in input_label_counts.values() if len(c)>1),
+            'irreducible_errors_for_deterministic_input':sum(sum(c.values())-max(c.values()) for c in input_label_counts.values() if len(c)>1),
             'normalization_errors':dict(failures.most_common(10))}
 
 

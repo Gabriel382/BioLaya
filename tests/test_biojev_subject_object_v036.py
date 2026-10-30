@@ -60,7 +60,7 @@ def test_real_schema_end_to_end(task,tmp_path):
     assert result['labels']==['A','B']
 
 
-def test_inherently_ambiguous_same_pair_still_blocks(tmp_path):
+def test_same_pair_conflicting_labels_are_retained_and_audited(tmp_path):
     task='biored';root=tmp_path/'root'
     tr=[]
     for i in range(15):
@@ -68,9 +68,14 @@ def test_inherently_ambiguous_same_pair_still_blocks(tmp_path):
         tr.append(row(task,f'B{i}',f'doc-{i}','same','same','B'))
     write(root/task/'train.jsonl',tr)
     write(root/task/'test.jsonl',[row(task,'E','heldout','x','y','A')])
-    with pytest.raises(ValueError,match='contradictory labels'):
-        mod.create_task(task,root,tmp_path/'b',tmp_path/'out',tmp_path/'cfg','base',42,.1)
-
+    result=mod.create_task(task,root,tmp_path/'b',tmp_path/'out',tmp_path/'cfg','base',42,.1)
+    assert result['status']=='READY'
+    kept=list(mod.read_rows(tmp_path/'out'/task/'train.jsonl'))+list(mod.read_rows(tmp_path/'out'/task/'dev.jsonl'))
+    assert len(kept)==30
+    assert {r['label'] for r in kept}=={'A','B'}
+    assert result['input_ambiguity']['train']['conflicting_model_inputs'] > 0
+    assert result['input_ambiguity']['train']['irreducible_errors_for_deterministic_input'] > 0
+    assert 'A' not in result['pair_source']
 
 def test_structured_subject_and_object_supported():
     a=mod.normalize_record(row('chemprot','id','doc',{'text':'aspirin','id':'S1'},{'text':'COX2','id':'O2'},'A'),'chemprot',0)
