@@ -1,69 +1,304 @@
 #!/usr/bin/env python3
-"""Prepare all five original biomedical benchmarks from local labelled split files.
+"""Prepare five BioJev biomedical benchmark tasks for BioLaya Standard.
 
-DO NOT reconstruct train/test splits or substitute the 11-source Sprint8 dev
-subset for the 5-task Sprint4 held-out protocol.
+Never fabricate an evaluation split. Preserve existing official test/dev data.
+BioNLI single-split evaluation membership is reconstructed using the IDs
+saved in BioJev Sprint4 predictions, not a fresh random 10% split.
 """
-import argparse,json
+from __future__ import annotations
+
+import argparse
+from collections import Counter, defaultdict
+import hashlib
+import json
+import math
 from pathlib import Path
-from biolaya.comparison.standard import prepare
-from biolaya.comparison.data import records
+import random
+import re
+import sys
 import yaml
 
-DATASETS=('bionli','nli4ct','chemprot','ddi2013','biored')
+DATASETS = ("bionli", "nli4ct", "chemprot", "ddi2013", "biored")
+ID_SOURCE_PATTERN = re.compile(r"^(?:bionli)[-_:](?:train[-_:])?(\d+)$", re.I)
 
-def locate(root,name,split):
-    d=Path(root)/name
-    for suffix in ('.jsonl','.json'):
-        p=d/(split+suffix)
-        if p.exists():return p
+
+def read_rows(path):
+    if not path or not path.is_file():
+        raise FileNotFoundError(f"Not found: {path}")
+    if path.suffix == '.json':
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(data, list): raise ValueError(f"Expected list in {path}")
+        yield from data
+        return
+    with path.open(encoding='utf-8') as f:
+        for i, line in enumerate(f, 1):
+            if line.strip():
+                try:
+                    row = json.loads(line)
+                    if not isinstance(row, dict): raise ValueError('Expected object')
+                    yield row
+                except (ValueError, KeyError) as exc:
+                    raise ValueError(f"{path}:{i}: {exc}") from exc
+
+
+def write_rows(path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('w', encoding='utf-8') as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + '\n')
+
+
+def filepath(root, ds, name):
+    for suffix in ('.jsonl', '.json'):
+        p = Path(root) / ds / (name + suffix)
+        if p.is_file(): return p
     return None
 
+
+def first(row, *keys):
+    for key in keys:
+        x = row.get(key)
+        if x is not None and x != '' and x != []:
+            return x
+    return None
+
+
+def as_text(value):
+    if isinstance(value, str): return value
+    if isinstance(value, (dict, list)): return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value)
+
+
+def normalize_record(row, source, index):
+    """Accept BioLaya choice rows and common BioJev NLI/RE labelled rows.
+
+    Fail closed on numeric-only labels or records with unrecognised schema.
+    Keeping labels verbatim prevents accidental relabeling of CPR/DDI/RE classes.
+    """
+    if not isinstance(row, dict): raise ValueError('expected JSON object')
+    rid = first(row, 'id', 'example_id', 'uid', 'pair_id')
+    rid = str(rid) if rid is not None else ''
+
+    if {'state', 'instructions', 'criteria', 'gold'} <= set(row):
+        if row.get('type', 'choice') != 'choice': raise ValueError('record must be a choice task')
+        criteria = row['criteria']
+        if not isinstance(criteria, dict) or len(criteria) < 2:
+            raise ValueError('choice criteria must contain at least 2 keyed alternatives')
+        label = str(row['gold'])
+        if label not in {str(x) for x in criteria}:
+            raise ValueError(f'gold {label!r} not in criteria')
+        text = as_text(row['state'])
+        question = str(row['instructions'])
+    elif {'state','question','options','answer_key'} <= set(row):
+        opts = row['options']
+        if not isinstance(opts,list): raise ValueError('expected options list')
+        keys={str(o['key']) for o in opts}
+        label=str(row['answer_key'])
+        if label not in keys: raise ValueError(f'answer_key {label!r} missing in options')
+        text=as_text(row['state'])
+        question=str(row['question'])
+    else:
+        label = (first(row,'label_name','relation_type','relation','gold_label','label','gold','answer')
+                 if source in ('chemprot','ddi2013','biored') else
+                 first(row,'gold_label','label_name','label','gold','answer'))
+        if isinstance(label, dict): label = first(label,'type','label','name')
+        if label is None: raise ValueError(f'no label field; available keys={sorted(row)}')
+        if isinstance(label, bool) or isinstance(label, (int,float)) or str(label).strip().isdigit():
+            raise ValueError(f'numeric class {label!r} needs an explicit verified label-name mapping')
+        label=str(label)
+        premise=first(row,'premise','sentence1','text_a','context','state')
+        hypothesis=first(row,'hypothesis','sentence2','text_b','statement','Statement')
+        if premise is not None and hypothesis is not None:
+            text=as_text(premise)
+            question=f'Hypothesis: {as_text(hypothesis)}'
+        else:
+            text=first(row,'text','input','sentence','marked_text','context','state','premise')
+            if text is None:
+                raise ValueError(f'no raw input text found; available keys={sorted(row)}')
+            text=as_text(text)
+            question=as_text(first(row,'question','instructions','prompt') or '')
+            e1=first(row,'entity1','head','head_entity','e1')
+            e2=first(row,'entity2','tail','tail_entity','e2')
+            if e1 is not None and e2 is not None:
+                question += f'\nEntity 1: {as_text(e1)}; Entity 2: {as_text(e2)}.'
+    if not str(text).strip() or not str(label).strip(): raise ValueError('empty text or label')
+    if not rid:
+        rid=f'__missing_id__:{source}:{index}'
+    return {'id':rid, 'source':source, 'text':str(text), 'question':str(question), 'label':str(label)}
+
+
+def canonical_id(value):
+    m = ID_SOURCE_PATTERN.fullmatch(str(value))
+    return f'bionli:{int(m.group(1))}' if m else str(value)
+
+
+def test_ids_from_biojev(biojev_root):
+    path=(Path(biojev_root)/'results/sprint4/frozen_4b/'
+          'biojev-4b__bionli__test__seed42/predictions.jsonl')
+    if not path.is_file():
+        raise FileNotFoundError(f'BioNLI frozen test membership not found: {path}')
+    rows=list(read_rows(path))
+    if not rows:raise ValueError(f'Empty BioJev test predictions {path}')
+    ids={canonical_id(first(r,'id','example_id')) for r in rows}
+    if None in ids or 'None' in ids:raise ValueError('BioJev test predictions contain missing IDs')
+    if len(ids)!=len(rows): raise ValueError(f'Duplicate BioJev test IDs: {len(rows)} records vs {len(ids)} unique')
+    return ids, path, rows
+
+
+def stratified_holdout(rows, *, seed=42, fraction=.1):
+    groups=defaultdict(list)
+    for r in rows:groups[r['label']].append(r)
+    rng=random.Random(seed)
+    train, dev=[],[]
+    for label in sorted(groups):
+        examples=groups[label][:]
+        rng.shuffle(examples)
+        n=max(1, int(round(len(examples)*fraction))) if len(examples)>1 else 0
+        n=min(n,len(examples)-1)
+        dev += examples[:n]
+        train += examples[n:]
+    rng.shuffle(train);rng.shuffle(dev)
+    return train,dev
+
+
+def fingerprint(row):
+    data={'text':row['text'],'question':row['question'],'source':row['source']}
+    return hashlib.sha256(json.dumps(data,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+
+
+def remove_cross_split_duplicates(train, dev, evaluation):
+    # Preserve dev and evaluation, remove exact text duplicates from training.
+    held={fingerprint(x) for x in dev+evaluation}
+    filtered=[x for x in train if fingerprint(x) not in held]
+    overlap_eval=len({fingerprint(x) for x in dev}&{fingerprint(x) for x in evaluation})
+    if overlap_eval:
+        # Do not silently score on material seen by model-selection validation.
+        raise ValueError(f'{overlap_eval} dev/evaluation overlapping fingerprints; revise the split policy')
+    return filtered, len(train)-len(filtered)
+
+
+def collect(root, name, split):
+    path=filepath(root,name,split)
+    if path is None: return None, None
+    records=[]
+    for i,row in enumerate(read_rows(path)):
+        try:records.append(normalize_record(row,name,i))
+        except Exception as exc:raise ValueError(f'{path}:{i+1}: {exc}') from exc
+    if not records:raise ValueError(f'empty {name} {split} file: {path}')
+    return records, path
+
+
+def create_task(name, root, biojev_root, out_dir, cfg_dir, base, seed, fraction):
+    train, trainpath = collect(root,name,'train')
+    if train is None:raise FileNotFoundError(f'missing {name} train')
+    dev, devpath = collect(root,name,'dev')
+    if dev is None: dev,devpath=collect(root,name,'validation')
+    test, testpath=collect(root,name,'test')
+    orig_count=len(train)
+    sources={'train':str(trainpath),'dev':str(devpath) if devpath else None,
+             'test':str(testpath) if testpath else None}
+    derived_dev=False
+    eval_original_split='test'
+    if name=='bionli':
+        # A provided test file cannot be assumed to be the BioJev 3,599 subset.
+        biojev_ids, predpath, prediction_rows = test_ids_from_biojev(biojev_root)
+        from_train=[r for r in train if canonical_id(r['id']) in biojev_ids]
+        found={canonical_id(r['id']) for r in from_train}
+        if found!=biojev_ids:
+            raise ValueError(f'BioNLI ID mismatch: matched {len(found)}/{len(biojev_ids)} '
+              f'BioJev test IDs. Missing examples: {sorted(biojev_ids-found)[:8]}; '
+              'do not invent new test samples. Check source ID schema/order.')
+        test=from_train
+        train=[r for r in train if canonical_id(r['id']) not in biojev_ids]
+        sources['test']=str(predpath)+' [ID membership only]'
+        dev=None # derived from remaining train, not from the held-out test
+    elif name=='nli4ct':
+        # Per the original Sprint4 frozen protocol, evaluation is NLI4CT/dev, NOT test.
+        if dev is None:raise FileNotFoundError('NLI4CT official dev/validation split is missing')
+        test=dev
+        sources['evaluation_source']=str(devpath)
+        eval_original_split='dev'
+        dev=None
+    elif test is None:
+        raise FileNotFoundError(f'{name}: test missing; cannot reproduce frozen benchmark')
+
+    if dev is None:
+        train,dev=stratified_holdout(train,seed=seed,fraction=fraction)
+        derived_dev=True
+    train,removed=remove_cross_split_duplicates(train,dev,test)
+    if not train or not dev or not test:
+        raise ValueError(f'{name}: empty train/dev/evaluation after split handling')
+    if name in ('chemprot','ddi2013','biored'):
+        # An entity-pair task cannot be learned if all pairs in a document
+        # collapse to the identical unmarked text while having different labels.
+        for split_name, values in [('train',train),('dev',dev),('evaluation',test)]:
+            known={}
+            for row in values:
+                key=(row['text'],row['question'])
+                if key in known and known[key]!=row['label']:
+                    raise ValueError(
+                      f'{name}/{split_name}: conflicting labels for identical text+question; '
+                      'entity-pair spans or mention IDs may be missing from BioJev input format')
+                known[key]=row['label']
+    labels=sorted({r['label'] for r in train})
+    unseen={r['label'] for r in dev+test}-set(labels)
+    if unseen:raise ValueError(f'{name}: evaluation has classes missing in training: {sorted(unseen)}')
+    # Protect against spurious IDs in train/dev/eval, keeping ID namespaces intact.
+    if name=='bionli' and len(test)!=len(biojev_ids):
+        raise ValueError(f'{name}: unexpected held-out test size {len(test)}')
+    taskdir=Path(out_dir)/name
+    write_rows(taskdir/'train.jsonl',train)
+    write_rows(taskdir/'dev.jsonl',dev)
+    write_rows(taskdir/'evaluation.jsonl',test)
+    if eval_original_split=='test':write_rows(taskdir/'test.jsonl',test)
+    cfg={
+      'seed':seed,
+      'model':{'base':base,'output':f'outputs/biolaya/standard/five/{name}'},
+      'labels':labels,
+      'data':{'train':str(taskdir/'train.jsonl'),'dev':str(taskdir/'dev.jsonl')},
+      'training':{'epochs':3,'max_length':1024 if name=='nli4ct' else 512,
+                  'batch_size':2 if name=='nli4ct' else 4, 'eval_batch_size':8,
+                  'grad_accum':16,'learning_rate':2e-5,'bf16':True,
+                  'gradient_checkpointing':True}}
+    configpath=Path(cfg_dir)/(name+'.yaml')
+    configpath.parent.mkdir(parents=True, exist_ok=True)
+    configpath.write_text(yaml.safe_dump(cfg,sort_keys=False),encoding='utf-8')
+    audit={'status':'READY','source_files':sources,
+           'original_training_rows':orig_count,'train':len(train),'dev':len(dev),
+           'evaluation':len(test),'evaluation_original_split':eval_original_split,
+           'internal_dev_derived_from_training':derived_dev,
+           'train_removed_by_exact_content_overlap':removed,
+           'labels':labels,'config':str(configpath),
+           'note':'Evaluation labels and instances preserved. Compare with the exact same BioJev dataset IDs and length policy.'}
+    (taskdir/'manifest.json').write_text(json.dumps(audit,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+    return audit
+
+
 def main():
-    p=argparse.ArgumentParser()
-    p.add_argument('--root',required=True,help='Original BioJev data/processed or BioLaya labelled splits')
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--root',required=True)
+    p.add_argument('--biojev-root',default='../BioJev')
     p.add_argument('--out',default='data/standard/five')
     p.add_argument('--configs-out',default='configs/standard/five')
-    p.add_argument('--require-test',action='store_true')
+    p.add_argument('--base',default='answerdotai/ModernBERT-large')
+    p.add_argument('--seed',type=int,default=42)
+    p.add_argument('--internal-dev-fraction',type=float,default=.1)
+    p.add_argument('--require-test',action='store_true',help='Legacy option: enforce real evaluation split; NLI4CT uses official dev')
     a=p.parse_args()
-    summary={}
+    if not (0<a.internal_dev_fraction<.5):p.error('--internal-dev-fraction must be between 0 and .5')
+    audit={}
     for name in DATASETS:
-        tr=locate(a.root,name,'train')
-        dev=locate(a.root,name,'dev') or locate(a.root,name,'validation')
-        test=locate(a.root,name,'test')
-        if not tr or not dev or (a.require_test and not test):
-            summary[name]={'status':'MISSING_SPLIT','train':str(tr),'dev':str(dev),'test':str(test)}
-            continue
-        dest=Path(a.out)/name
         try:
-            result=prepare(tr,dev,dest,source=None)
-            # read source is BioLaya 'dataset': all source rows should be one task.
-            sources={r['source'] for r in records(dest/'train.jsonl')}
-            if sources!={name}: raise ValueError(f'{name}: inconsistent source values {sources}')
-            if test:
-                from biolaya.comparison.standard import encode_standard
-                from biolaya.comparison.data import dump
-                xs=[encode_standard(x) for x in records(test)]
-                if any(x['label'] not in result['labels'] for x in xs):
-                    raise ValueError(f'{name}: unseen test labels; do not discard classes')
-                dump(dest/'test.jsonl',xs)
-            cfg={'seed':42,'model':{'base':'answerdotai/ModernBERT-large',
-                 'output':f'outputs/biolaya/standard/five/{name}'},'labels':result['labels'],
-                 'data':{'train':str(dest/'train.jsonl'),'dev':str(dest/'dev.jsonl')},
-                 'training':{'epochs':3,'max_length':1024 if name=='nli4ct' else 512,
-                 'batch_size':2 if name=='nli4ct' else 4,'eval_batch_size':8,
-                 'grad_accum':16,'learning_rate':2e-5,'bf16':True,'gradient_checkpointing':True}}
-            out=Path(a.configs_out)/(name+'.yaml');out.parent.mkdir(parents=True,exist_ok=True)
-            out.write_text(yaml.safe_dump(cfg,sort_keys=False))
-            summary[name]={'status':'READY','train':result['train'],'dev':result['dev'],
-                'test':len(list(records(dest/'test.jsonl'))) if test else None,
-                'labels':result['labels'],'config':str(out)}
-        except Exception as e:
-            summary[name]={'status':'BLOCKED','reason':str(e),
-                 'note':'Preserve exact BioJev split and ontology; no automatic re-labelling'}
-    print(json.dumps(summary,indent=2))
-    report=Path(a.out)/'audit.json';report.parent.mkdir(parents=True,exist_ok=True)
-    report.write_text(json.dumps(summary,indent=2))
-    if any(r['status']!='READY' for r in summary.values()):
-        raise SystemExit('Not all five tasks ready; see audit.json for missing splits or incompatible formatting.')
+            audit[name]=create_task(name,a.root,a.biojev_root,a.out,a.configs_out,
+                                    a.base,a.seed,a.internal_dev_fraction)
+        except Exception as exc:
+            audit[name]={'status':'BLOCKED','reason':str(exc),
+                         'note':'Task failed closed. No automatic replacement of missing evaluation data.'}
+    out=Path(a.out);out.mkdir(parents=True,exist_ok=True)
+    (out/'audit.json').write_text(json.dumps(audit,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+    print(json.dumps(audit,indent=2,ensure_ascii=False))
+    if any(x['status']!='READY' for x in audit.values()):
+        raise SystemExit('One or more tasks blocked. Review audit.json; nothing was invented.')
+
+
 if __name__=='__main__':main()
