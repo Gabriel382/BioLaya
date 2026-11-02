@@ -1,152 +1,220 @@
 # BioLaya
 
-> **Current project status:** Sprint 1 and 2 foundation retained; reproducible Standard NLI and native Laya decision training/evaluation pipeline added. **No trained BioLaya SystemOne checkpoints or measured results are contained in this source release.** For native Ollama export see the converter gate and runtime requirements in [the full pipeline guide](docs/BIOLAYA_FULL_PIPELINE.md).
+**BioLaya** is a biomedical specialization of **Laya** focused on structured decision making for biomedical and clinical NLP.
+It was developed to give **Laya** the same kind of rigorous experimental treatment given to **BioJev**, including:
 
-## Standard & SystemOne workflows
+- a **task-specific biomedical evaluation track** on 5 benchmarks;
+- a **SystemOne track** for structured multi-choice decision tasks;
+- **comparisons against strong baselines**;
+- reproducible configs, scripts, and export flows for **Hugging Face** and **Ollama**.
 
-```bash
-python -m pip install -e ".[train,systemone,dev]"
-python scripts/prepare_comparable_data.py \
-  --biojev-train ../BioJev/data/sprint8/systemone_4b/train.jsonl \
-  --biojev-dev ../BioJev/data/sprint8/systemone_4b/dev.jsonl
-# If the source train/dev contain overlaps, first inspect:
-# python scripts/prepare_comparable_data.py --audit-only
-# Then explicitly sanitize only training rows:
-# python scripts/prepare_comparable_data.py --overlap-policy drop-train
-python scripts/prepare_standard.py --source bionli --out data/standard/bionli
-python scripts/train_systemone.py --dry-run
-python scripts/train_systemone.py
-python scripts/eval_comparable.py --backend laya --limit 55
+**Project lead:** Gabriel Henrique Alencar Medeiros  
+**Supervision:** Lina F. Soualmia
+
+---
+
+## What is in this repository?
+
+BioLaya has **two complementary model families**:
+
+### 1) BioLaya Standard
+Task-specific supervised biomedical classifiers:
+
+- **BioNLI**
+- **NLI4CT**
+- **ChemProt**
+- **DDI2013**
+- **BioRED**
+
+These models were trained and evaluated as dedicated classifiers for each benchmark.
+
+### 2) BioLaya SystemOne
+A **Laya-style structured decision model** trained for typed decision tasks, including biomedical and general decision benchmarks.
+
+This is the branch intended for:
+
+- structured inference;
+- interoperability with **Laya/SystemOne-style APIs**;
+- export and validation for **Ollama** deployment.
+
+---
+
+## Main results
+
+### Standard biomedical benchmarks
+
+| Task | Accuracy | Macro-F1 | ECE |
+| --- | ---: | ---: | ---: |
+| BioNLI | **94.11%** | **93.55%** | 0.0394 |
+| NLI4CT | 50.00% | 38.00% | 0.0242 |
+| ChemProt | 39.22% | 17.95% | 0.1039 |
+| DDI2013 | 56.28% | 45.08% | 0.1202 |
+| BioRED | **76.50%** | **64.77%** | 0.1707 |
+
+### BioLaya SystemOne
+
+- **11-task evaluation**
+- **6,768 evaluation examples**
+- **89.44% aggregate accuracy**
+- fast structured decision inference with native SystemOne formatting
+
+---
+
+## Comparison figures
+
+The repository now includes ready-to-use charts under [`results/images/`](results/images).
+
+### BioLaya vs supervised biomedical baselines
+
+![Supervised accuracy comparison](results/images/01_supervised_accuracy.png)
+
+![Supervised macro-F1 comparison](results/images/02_supervised_macro_f1.png)
+
+### BioLaya vs frozen decision-model baselines
+
+![BioLaya vs frozen models](results/images/03_biolaya_vs_frozen_accuracy.png)
+
+### BioLaya SystemOne on 11 tasks
+
+![BioLaya SystemOne](results/images/05_biolaya_systemone_11_tasks.png)
+
+### Delta to best supervised baseline
+
+![Delta to best baseline](results/images/06_delta_to_best_supervised_accuracy.png)
+
+A compiled PDF version is also provided in [`results/reports/BioLaya_Comparison_Charts.pdf`](results/reports/BioLaya_Comparison_Charts.pdf).
+
+---
+
+## Repository structure
+
+```text
+BioLaya/
+├── configs/                    # training and evaluation configs
+├── docs/                       # notes, sprint docs, protocol docs
+├── notebooks/                  # Colab / walkthrough notebooks
+├── scripts/                    # training, preparation, export, evaluation
+├── src/biolaya/                # source package
+├── results/
+│   ├── images/                 # publication / README-ready figures
+│   ├── reports/                # compiled PDF reports
+│   └── tables/                 # CSVs used for the charts
+└── README.md
 ```
 
-**Dataset leakage audit:** [Split contamination and safe conversion](docs/SPLIT_LEAKAGE_AUDIT.md). The source BioJev Sprint8 data may contain overlapping training and development content; strict conversion defaults to rejecting overlaps.
+---
 
-**Details:** [BioLaya full protocol](docs/BIOLAYA_FULL_PIPELINE.md). Existing biomedical MLM DAPT, Sprint 1 and Sprint 2 notebooks remain available below.
+## Quick start
 
+Install locally:
 
-BioLaya is a biomedical specialization of the open-source **Laya** decision model. The project mirrors BioJev's seven-sprint scientific protocol while keeping Laya's native non-autoregressive typed-decision architecture.
+```bash
+python -m pip install -e .
+```
 
-## Infrastructure
-
-- **GitHub** — source code, configs, notebooks, tests and paper scripts: `https://github.com/Gabriel382/BioLaya`
-- **Google Colab** — disposable GPU compute.
-- **Google Drive** — persistent checkpoints, results and final intermediate models for interrupted Colab sessions.
-- **Hugging Face** — final/publishable model artifacts.
-
-## Install
-
-Python 3.10+:
+For training / experiments:
 
 ```bash
 python -m pip install -e ".[train]"
 ```
 
-Google Colab installs the current GitHub version directly:
+For SystemOne / Laya-specific workflows:
 
-```python
-%pip install -q --upgrade "biolaya[train,colab] @ git+https://github.com/Gabriel382/BioLaya.git"
+```bash
+python -m pip install -e ".[systemone]"
 ```
 
-BioLaya pins `laya==0.4.15` for its supported `laya-train` CLI. Version `0.3.20` installs the inference runtime but does not provide that command in tested environments. The Colab extra also pins compatible `fsspec`/`gcsfs` versions for the current Colab + Hugging Face Datasets stack.
+---
 
-## Canonical Colab notebooks
+## Reproducing the core workflows
 
-The `.ipynb` files live in this repository and in the release ZIP. **Download/copy the notebook into Google Drive, open it with Google Colab, and run it there.** The notebooks do not require cloning the repository into the VM.
+### 1) Prepare comparable SystemOne data
 
-- **Sprint 1:** `notebooks/01_sprint1_colab.ipynb`
-- **Sprint 2:** `notebooks/02_sprint2_colab.ipynb`
-
-Each notebook installs BioLaya directly from GitHub.
-
-## Local validation before Colab
-
-CPU-only validation is always supported:
-
-```powershell
-python -m pip install -e ".[train,dev]"
-python scripts\check_env.py --device cpu
-python scripts\local_smoke.py --device cpu --skip-model
-python scripts\sprint2_smoke.py --device cpu --preset smoke
-python scripts\plan_dapt.py --preset 10m
-pytest -q
+```bash
+python scripts/prepare_comparable_data.py \
+  --biojev-train ../BioJev/data/sprint8/systemone_4b/train.jsonl \
+  --biojev-dev ../BioJev/data/sprint8/systemone_4b/dev.jsonl \
+  --overlap-policy drop-train
 ```
 
-A machine with CUDA can run the same checks with `--device cuda`. Explicit CUDA mode is strict and fails instead of silently falling back to CPU. `--device auto` selects CUDA when available and CPU otherwise.
+### 2) Train BioLaya SystemOne
 
-See `docs/LOCAL_TESTING.md`.
+Dry run:
 
-# Sprint 1 — Benchmark foundation
-
-Sprint 1 converts the BioJev benchmark family into Laya-native typed decisions:
-
-- BioNLI
-- NLI4CT
-- ChemProt
-- DDI2013
-- BioRED
-
-Prepare datasets:
-
-```powershell
-python scripts\download_datasets.py --all
+```bash
+python scripts/train_systemone.py --dry-run
 ```
 
-Evaluate base Laya:
+Actual training:
 
-```powershell
-python scripts\evaluate.py `
-  --dataset-file data\processed\bionli\test.jsonl `
-  --model english `
-  --device auto `
-  --output-dir results\laya_base\bionli
+```bash
+python scripts/train_systemone.py
 ```
 
-See `docs/SPRINT1.md`.
+### 3) Prepare the five biomedical benchmarks
 
-# Sprint 2 — Biomedical domain adaptation
-
-Sprint 2 adapts the **ModernBERT-large backbone family used by Laya** with masked-language-model continued pretraining over an 80/20 PubMed/PMC streaming mixture.
-
-The result is an intermediate **BioModernBERT** backbone. Sprint 3 will compare a no-DAPT Laya route against the BioModernBERT/DAPT route when constructing the actual BioLaya decision model.
-
-Available presets:
-
-```text
-smoke  100K tokens
-1m       1M tokens
-10m     10M tokens
-100m   100M tokens
+```bash
+python scripts/prepare_five_benchmarks.py \
+  --root ../BioJev/data/processed \
+  --require-test
 ```
 
-Plan a run without loading a model:
+### 4) Evaluate / inspect results
 
-```powershell
-python scripts\plan_dapt.py --preset 10m
-```
+Use the generated summaries and the chart tables inside [`results/tables/`](results/tables).
 
-Preflight PubMed + PMC without loading ModernBERT:
+---
 
-```powershell
-python scripts\inspect_corpus.py --preset smoke
-```
+## Model publishing
 
-Real local training:
+### Hugging Face
+This repository is designed so final released checkpoints can be exported and published manually to Hugging Face.
 
-```powershell
-python scripts\train_dapt.py `
-  --preset smoke `
-  --device cuda `
-  --resume none
-```
+Recommended repository name:
 
-On Colab, use **`notebooks/02_sprint2_colab.ipynb`**. It trains from `/content`, copies resumable checkpoints to Google Drive, restores the newest checkpoint with `--resume auto`, and persists the final BioModernBERT model to Drive.
+- **`Gabriel382/biolaya`**
 
-See `docs/SPRINT2.md`.
+### Ollama
+BioLaya SystemOne was also prepared for **Ollama-style deployment**, after conversion / validation in the dedicated export pipeline.
 
-## Scientific roadmap
+The README for the Ollama release should document:
 
-See `docs/ROADMAP.md` for Sprints 1–7.
+- model purpose;
+- SystemOne request format;
+- benchmark scope;
+- limitations;
+- expected `/v1/systemone` usage.
 
-## Upstream
+---
 
-BioLaya depends on Laya rather than vendoring it. Laya is Apache-2.0 and distributed as an installable Python package. BioLaya records the pinned upstream version in `pyproject.toml` for reproducibility.
+## Notes on comparisons
+
+Please keep the following in mind when reporting results:
+
+- **BioLaya Standard** is a **task-specific supervised setup**.
+- **BioJev 4B / OpenJev / Qwen frozen** are **not** directly identical training regimes.
+- Some comparisons are therefore **descriptive**, not strict apples-to-apples claims.
+- NLI4CT and benchmark split policies should always be stated clearly.
+
+The included figures are meant to be **professional, publication-ready summaries**, but claims in papers or posts should still mention the exact evaluation setting.
+
+---
+
+## External links
+
+- **GitHub:** `https://github.com/Gabriel382/BioLaya`
+- **Hugging Face:** `https://huggingface.co/Gabriel382/biolaya`
+- **Reference project:** `https://github.com/Gabriel382/BioJev`
+
+---
+
+## Citation
+
+If you use BioLaya, please cite the repository / report associated with the release.
+A formal citation block can be added once the final technical report or paper entry is fixed.
+
+---
+
+## Disclaimer
+
+**For research use only.** BioLaya is not a medical device and must not be used for autonomous clinical decision making.
